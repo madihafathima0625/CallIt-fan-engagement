@@ -7,7 +7,7 @@ import { ScoreScreen } from './components/ScoreScreen';
 
 type Screen = 'start' | 'match' | 'reveal' | 'score';
 
-// Background fetch for Live AI Analyst with 8-second timeout & offline fallback
+// Background fetch for Live AI Analyst with 9-second timeout & offline fallback
 function fetchLiveAnalyst(moment: Moment, currentLevel: Level): Promise<AnalystCall> {
   const fallback: AnalystCall = {
     pick: moment.analystPick,
@@ -29,7 +29,7 @@ function fetchLiveAnalyst(moment: Moment, currentLevel: Level): Promise<AnalystC
     const timeoutId = setTimeout(() => {
       controller.abort();
       resolve(fallback);
-    }, 8000); // 8 second timeout
+    }, 9000); // 9 second timeout
 
     fetch('/api/analyst', {
       method: 'POST',
@@ -81,19 +81,49 @@ export default function App() {
   const [userPick, setUserPick] = useState<number | null>(null);
   const [analystCall, setAnalystCall] = useState<AnalystCall | null>(null);
   const [isWaitingForAnalyst, setIsWaitingForAnalyst] = useState(false);
+  const [, setPrefetchedResults] = useState<Record<number, AnalystCall>>({});
 
   const analystPromiseRef = useRef<Promise<AnalystCall> | null>(null);
+  const prefetchedPromisesRef = useRef<Map<number, Promise<AnalystCall>>>(new Map());
+
   const currentMoment = moments[currentMomentIndex];
 
-  // Initiate Live AI Analyst prefetch in background when match moment starts
+  // Initiate Live AI Analyst request for the current moment if not already prefetched
   useEffect(() => {
     if (screen === 'match' && currentMoment) {
-      analystPromiseRef.current = fetchLiveAnalyst(currentMoment, level);
+      let promise = prefetchedPromisesRef.current.get(currentMomentIndex);
+      if (!promise) {
+        promise = fetchLiveAnalyst(currentMoment, level);
+        prefetchedPromisesRef.current.set(currentMomentIndex, promise);
+        promise.then((res) => {
+          setPrefetchedResults((prev) => ({ ...prev, [currentMomentIndex]: res }));
+        });
+      }
+      analystPromiseRef.current = promise;
     }
   }, [screen, currentMomentIndex, level, currentMoment]);
 
+  // Prefetch: while on the Reveal screen for moment N, prefetch moment N+1 in the background
+  useEffect(() => {
+    if (screen === 'reveal') {
+      const nextIndex = currentMomentIndex + 1;
+      if (nextIndex < moments.length) {
+        const nextMoment = moments[nextIndex];
+        if (!prefetchedPromisesRef.current.has(nextIndex)) {
+          const promise = fetchLiveAnalyst(nextMoment, level);
+          prefetchedPromisesRef.current.set(nextIndex, promise);
+          promise.then((res) => {
+            setPrefetchedResults((prev) => ({ ...prev, [nextIndex]: res }));
+          });
+        }
+      }
+    }
+  }, [screen, currentMomentIndex, level]);
+
   // Start the match from StartScreen
   const handleStartMatch = () => {
+    prefetchedPromisesRef.current.clear();
+    setPrefetchedResults({});
     setCurrentMomentIndex(0);
     setUserScore(0);
     setAnalystScore(0);
@@ -107,7 +137,7 @@ export default function App() {
   const handlePick = async (selectedIndex: number | null) => {
     setUserPick(selectedIndex);
 
-    // If live answer is not ready when the user picks, wait for it up to the 8 second limit
+    // If live answer is not ready when the user picks, wait for it up to the 9-second limit
     let resolvedCall: AnalystCall;
     if (analystPromiseRef.current) {
       setIsWaitingForAnalyst(true);
@@ -150,6 +180,8 @@ export default function App() {
 
   // Reset match and return to StartScreen, keeping the chosen level
   const handlePlayAgain = () => {
+    prefetchedPromisesRef.current.clear();
+    setPrefetchedResults({});
     setCurrentMomentIndex(0);
     setUserScore(0);
     setAnalystScore(0);

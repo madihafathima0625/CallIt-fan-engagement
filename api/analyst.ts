@@ -43,9 +43,14 @@ export default async function handler(req: any, res: any) {
 
   // Read environment variables (never log or return key)
   const apiKey = process.env.GEMINI_API_KEY?.trim();
-  const model = process.env.GEMINI_MODEL?.trim() || 'gemini-2.0-flash';
+  let model = process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite';
+  // Map deprecated gemini-2.5-flash-lite to supported gemini-3.5-flash-lite
+  if (model === 'gemini-2.5-flash-lite') {
+    model = 'gemini-3.5-flash-lite';
+  }
 
   if (!apiKey) {
+    console.error('[analyst] Failure at stage: server configuration. API key missing.');
     return respond(res, 500, { error: 'Server configuration error' });
   }
 
@@ -77,11 +82,22 @@ Instructions:
 3. Return ONLY a valid JSON object matching this schema:
 {"pick": 0|1|2, "why": "string under 25 words"}`;
 
-  try {
-    // Official Gemini generateContent REST endpoint
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  // Configure thinking for minimal or off to reduce latency
+  const thinkingConfig = model.includes('2.5')
+    ? { thinkingBudget: 0 }
+    : { thinkingLevel: 'minimal' };
 
-    const upstreamResponse = await fetch(endpoint, {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+
+  // 7-second timeout for upstream Gemini fetch
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, 7000);
+
+  let upstreamResponse: Response;
+  try {
+    upstreamResponse = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -95,54 +111,78 @@ Instructions:
         ],
         generationConfig: {
           responseMimeType: 'application/json',
-          temperature: 0.3,
+          maxOutputTokens: 120,
+          temperature: 0.4,
+          thinkingConfig,
         },
       }),
+      signal: controller.signal,
     });
-
-    if (!upstreamResponse.ok) {
-      return respond(res, 502, { error: 'Upstream AI model request failed' });
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (controller.signal.aborted) {
+      console.error('[analyst] Failure at stage: upstream request. Reason: timeout (exceeded 7 seconds)');
+      return respond(res, 504, { error: 'timeout' });
     }
-
-    const data: any = await upstreamResponse.json();
-    const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (typeof candidateText !== 'string') {
-      return respond(res, 502, { error: 'No response content returned from model' });
-    }
-
-    // Parse model output JSON
-    let parsed: any;
-    try {
-      const cleaned = candidateText.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
-      parsed = JSON.parse(cleaned);
-    } catch {
-      return respond(res, 502, { error: 'Model output is not valid JSON' });
-    }
-
-    // Validate the model's output:
-    // pick must be 0, 1 or 2
-    // why must be a non-empty string under 200 characters
-    if (
-      typeof parsed !== 'object' ||
-      parsed === null ||
-      typeof parsed.pick !== 'number' ||
-      !Number.isInteger(parsed.pick) ||
-      ![0, 1, 2].includes(parsed.pick) ||
-      typeof parsed.why !== 'string' ||
-      parsed.why.trim().length === 0 ||
-      parsed.why.length >= 200
-    ) {
-      return respond(res, 502, { error: 'Model output failed schema validation' });
-    }
-
-    return respond(res, 200, {
-      pick: parsed.pick,
-      why: parsed.why.trim(),
-    });
-  } catch {
-    return respond(res, 502, { error: 'Error processing live analyst prediction' });
+    console.error('[analyst] Failure at stage: upstream request.', err?.message || String(err));
+    return respond(res, 502, { error: 'Upstream AI model request failed' });
   }
+
+  clearTimeout(timeoutId);
+
+  // Upstream status failure logging
+  if (!upstreamResponse.ok) {
+    const errorBody = (await upstreamResponse.text().catch(() => '')).slice(0, 200);
+    console.error(
+      `[analyst] Failure at stage: upstream status. HTTP status: ${upstreamResponse.status}. Body: ${errorBody}`
+    );
+    return respond(res, 502, { error: 'Upstream AI model request failed' });
+  }
+
+  let data: any;
+  let candidateText: string | undefined;
+  try {
+    data = await upstreamResponse.json();
+    candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (typeof candidateText !== 'string') {
+      throw new Error('No text parts in candidate response');
+    }
+  } catch (err: any) {
+    console.error('[analyst] Failure at stage: JSON parse (upstream response).', err?.message || String(err));
+    return respond(res, 502, { error: 'Failed to parse upstream AI response' });
+  }
+
+  // Parse model output JSON
+  let parsed: any;
+  try {
+    const cleaned = candidateText.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+    parsed = JSON.parse(cleaned);
+  } catch (err: any) {
+    console.error('[analyst] Failure at stage: JSON parse (model output text).', err?.message || String(err));
+    return respond(res, 502, { error: 'Model output is not valid JSON' });
+  }
+
+  // Validate the model's output:
+  // pick must be 0, 1 or 2
+  // why must be a non-empty string under 200 characters
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    typeof parsed.pick !== 'number' ||
+    !Number.isInteger(parsed.pick) ||
+    ![0, 1, 2].includes(parsed.pick) ||
+    typeof parsed.why !== 'string' ||
+    parsed.why.trim().length === 0 ||
+    parsed.why.length >= 200
+  ) {
+    console.error('[analyst] Failure at stage: validation. Invalid pick or why format in model output.');
+    return respond(res, 502, { error: 'Model output failed schema validation' });
+  }
+
+  return respond(res, 200, {
+    pick: parsed.pick,
+    why: parsed.why.trim(),
+  });
 }
 
 async function parseRequestBody(req: any): Promise<any> {
