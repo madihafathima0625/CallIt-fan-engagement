@@ -6,6 +6,7 @@ interface MatchScreenProps {
   momentIndex: number;
   totalMoments: number;
   level: Level;
+  isWaitingForAnalyst?: boolean;
   onPick: (selectedIndex: number | null) => void;
 }
 
@@ -16,6 +17,7 @@ export function MatchScreen({
   momentIndex,
   totalMoments,
   level,
+  isWaitingForAnalyst = false,
   onPick,
 }: MatchScreenProps) {
   const [timeLeft, setTimeLeft] = useState(TOTAL_TIME);
@@ -30,14 +32,18 @@ export function MatchScreen({
 
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
+        // If user already picked, stop decreasing
+        if (resolvedRef.current) {
+          clearInterval(interval);
+          return prev;
+        }
+
         if (prev <= 1) {
           clearInterval(interval);
           if (!resolvedRef.current) {
             resolvedRef.current = true;
             setLocked(true);
-            setTimeout(() => {
-              onPick(null);
-            }, 300);
+            onPick(null);
           }
           return 0;
         }
@@ -53,9 +59,7 @@ export function MatchScreen({
     resolvedRef.current = true;
     setLocked(true);
     setSelectedOption(index);
-    setTimeout(() => {
-      onPick(index);
-    }, 350);
+    onPick(index);
   };
 
   const progressPercent = Math.max(0, (timeLeft / TOTAL_TIME) * 100);
@@ -190,6 +194,14 @@ export function MatchScreen({
             );
           })}
         </div>
+
+        {/* Subtle indicator while awaiting analyst if user picked early */}
+        {isWaitingForAnalyst && (
+          <div className="flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-[#C6FF3D]/10 border border-[#C6FF3D]/30 text-xs font-semibold text-[#C6FF3D] text-center animate-pulse">
+            <span className="w-2 h-2 rounded-full bg-[#C6FF3D]" />
+            <span>Locking in call &amp; awaiting analyst...</span>
+          </div>
+        )}
       </section>
     </div>
   );

@@ -1,11 +1,18 @@
 import type { Moment, Level } from '../data/match';
 
+export type AnalystCall = {
+  pick: number;
+  why: string;
+  source: 'live' | 'offline';
+};
+
 interface RevealScreenProps {
   moment: Moment;
   momentIndex: number;
   totalMoments: number;
   level: Level;
   userPick: number | null;
+  analystCall: AnalystCall;
   onNext: () => void;
 }
 
@@ -15,10 +22,11 @@ export function RevealScreen({
   totalMoments,
   level,
   userPick,
+  analystCall,
   onNext,
 }: RevealScreenProps) {
   const isUserCorrect = userPick !== null && userPick === moment.correctIndex;
-  const isAnalystCorrect = moment.analystPick === moment.correctIndex;
+  const isAnalystCorrect = analystCall.pick === moment.correctIndex;
   const isLastMoment = momentIndex + 1 >= totalMoments;
 
   return (
@@ -173,13 +181,23 @@ export function RevealScreen({
             <span className="text-xs font-black uppercase tracking-wider text-slate-200">
               Analyst's Call
             </span>
+            {analystCall.source === 'live' ? (
+              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#C6FF3D] bg-[#C6FF3D]/10 border border-[#C6FF3D]/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#C6FF3D] animate-pulse" />
+                Live AI
+              </span>
+            ) : (
+              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 bg-slate-800/80 border border-slate-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                Offline mode
+              </span>
+            )}
           </div>
           <span className="text-xs font-bold text-sky-400 bg-sky-950/60 px-2 py-0.5 rounded border border-sky-800/60">
-            Pick: "{moment.options[moment.analystPick]}"
+            Pick: "{moment.options[analystCall.pick]}"
           </span>
         </div>
         <p className="text-xs text-slate-300 leading-relaxed pt-1">
-          {moment.analystWhy[level]}
+          {analystCall.why}
         </p>
       </section>
 
