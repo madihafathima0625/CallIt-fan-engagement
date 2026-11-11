@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { moments, type Level, type Moment } from './data/match';
+import { matchInfo, moments, type Level, type Moment } from './data/match';
 import { StartScreen } from './components/StartScreen';
 import { MatchScreen } from './components/MatchScreen';
 import { RevealScreen, type AnalystCall } from './components/RevealScreen';
 import { ScoreScreen } from './components/ScoreScreen';
+import { AnalystLab } from './components/AnalystLab';
 
-type Screen = 'start' | 'match' | 'reveal' | 'score';
+type Screen = 'start' | 'match' | 'reveal' | 'score' | 'lab';
 
 // Background fetch for Live AI Analyst with 9-second timeout & offline fallback
 function fetchLiveAnalyst(moment: Moment, currentLevel: Level): Promise<AnalystCall> {
@@ -82,6 +83,10 @@ export default function App() {
   const [analystCall, setAnalystCall] = useState<AnalystCall | null>(null);
   const [isWaitingForAnalyst, setIsWaitingForAnalyst] = useState(false);
   const [, setPrefetchedResults] = useState<Record<number, AnalystCall>>({});
+
+  // Lab Navigation State
+  const [labReturnScreen, setLabReturnScreen] = useState<'start' | 'reveal' | 'score'>('start');
+  const [labInitialTab, setLabInitialTab] = useState<'scenario' | 'chat'>('scenario');
 
   const analystPromiseRef = useRef<Promise<AnalystCall> | null>(null);
   const prefetchedPromisesRef = useRef<Map<number, Promise<AnalystCall>>>(new Map());
@@ -192,6 +197,34 @@ export default function App() {
     setScreen('start');
   };
 
+  // Open Analyst Lab without losing current match state
+  const handleOpenLab = (fromScreen: 'start' | 'reveal' | 'score', tab: 'scenario' | 'chat') => {
+    setLabReturnScreen(fromScreen);
+    setLabInitialTab(tab);
+    setScreen('lab');
+  };
+
+  // Return from Analyst Lab preserving match state
+  const handleBackFromLab = () => {
+    setScreen(labReturnScreen);
+  };
+
+  // Build matchContext safely: never include outcomes of unrevealed moments
+  const buildMatchContext = (): string => {
+    if (labReturnScreen === 'start') {
+      return `No match played yet. Fixture: ${matchInfo.title}. (${matchInfo.format})`;
+    }
+    if (labReturnScreen === 'score') {
+      return `Finished match: ${matchInfo.title} (${matchInfo.format}). Final Score: You ${userScore} - ${analystScore} Analyst.`;
+    }
+    // Revealed so far up to currentMomentIndex
+    const momentsSoFar = moments
+      .slice(0, currentMomentIndex + 1)
+      .map((m) => `${m.over} (${m.score}) - Question: ${m.question}`)
+      .join('; ');
+    return `In-progress match: ${matchInfo.title}. Moments revealed so far: ${momentsSoFar}`.slice(0, 600);
+  };
+
   return (
     <div className="min-h-screen bg-[#0B1220] text-slate-100 flex flex-col items-center justify-start p-4 sm:p-6 selection:bg-[#C6FF3D] selection:text-[#0B1220]">
       {screen === 'start' && (
@@ -199,6 +232,7 @@ export default function App() {
           level={level}
           onSelectLevel={setLevel}
           onStartMatch={handleStartMatch}
+          onOpenLab={() => handleOpenLab('start', 'scenario')}
         />
       )}
 
@@ -223,6 +257,7 @@ export default function App() {
           userPick={userPick}
           analystCall={analystCall}
           onNext={handleNextMoment}
+          onOpenChat={() => handleOpenLab('reveal', 'chat')}
         />
       )}
 
@@ -233,6 +268,16 @@ export default function App() {
           totalMoments={moments.length}
           level={level}
           onPlayAgain={handlePlayAgain}
+          onOpenLab={() => handleOpenLab('score', 'scenario')}
+        />
+      )}
+
+      {screen === 'lab' && (
+        <AnalystLab
+          level={level}
+          initialTab={labInitialTab}
+          matchContext={buildMatchContext()}
+          onBack={handleBackFromLab}
         />
       )}
     </div>
