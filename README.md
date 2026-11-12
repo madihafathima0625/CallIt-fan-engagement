@@ -1,43 +1,53 @@
-# CallIt
+# CallIt: Predict the next play. Beat the Analyst.
 
-> **Predict the next play. Beat the Analyst.**
+CallIt turns watching a match into a game. Before each key moment the fan predicts the outcome, a live AI analyst makes its own prediction with reasoning, and afterwards the app explains why it happened at the fan's level (Newcomer or Pro).
 
-A mobile-first live sports prediction app built with React, TypeScript, Vite, and Tailwind CSS.
+**Live demo:** https://call-it-fan-engagement.vercel.app/
 
-## Sports Theme & Styling
-- **Background:** Dark Navy (`#0B1220`)
-- **Accent:** Electric Lime (`#C6FF3D`)
-- **Aesthetic:** Modern athletic HUD look with clean typography, live match badge, and interactive level selector.
+## Problem
+Fans often watch passively, and casual or new fans get lost in jargon and stats. This project targets the "Fan Engagement & Experience" track: moving users from watching to participating and understanding.
 
-## Quick Start
+## How it works
+1. Pick a fan level (Newcomer or Pro).
+2. For each of 7 match moments, predict the outcome within 15 seconds.
+3. See the result, the analyst's own call with its reasoning, and "why it happened" in your level's language.
+4. Finish with a You vs Analyst score.
+5. Use the Analyst Lab to type any match scenario for a live prediction, or chat with the analyst about the match so far.
 
-### 1. Install Dependencies
-```bash
-npm install
+## What is real vs simulated
+
+| Area | Status |
+|---|---|
+| Play loop, timer and scoring | Real |
+| Analyst predictions and reasoning | Real, live AI (Gemini API) through a server-side function |
+| Analyst Lab (scenario and chat) | Real, live AI |
+| Automatic fallback to pre-written answers when the AI is unavailable, shown with an OFFLINE badge | Real |
+| The match itself ("Blue Hawks vs Red Lions", 7 scripted moments) | Simulated |
+| Real-time sports data feed | Not implemented (future scope) |
+
+## Tech stack
+- React, TypeScript, Vite and Tailwind CSS for a fast, mobile-first front end.
+- Vercel serverless functions to keep the API key off the browser.
+- Gemini API for the analyst's predictions and explanations.
+
+## Run locally
 ```
-
-### 2. Start Development Server
-```bash
+npm install
 npm run dev
 ```
-Open [http://localhost:5173](http://localhost:5173) in your browser.
-
-### 3. Production Build & Linting
-```bash
-# Type check and build
-npm run build
-
-# Preview production build locally
-npm run preview
-
-# Run linter
-npm run lint
+The `/api` functions run on Vercel, so locally the app uses the offline fallback unless a Vercel dev setup is used.
+Other commands:
+```
+npm run build     # type check and production build
+npm run preview   # preview the production build locally
+npm run lint      # run the linter
 ```
 
-## Step 1 Scope
-- [x] Initialized React + TypeScript + Tailwind CSS application via Vite in the root directory.
-- [x] Exported typed match information and moments data (`Level`, `Moment`, `matchInfo`, `moments`) in `src/data/match.ts`.
-- [x] Implemented Start screen with app title "CallIt", tagline "Predict the next play. Beat the Analyst.", match title and format.
-- [x] Built two-button knowledge level picker ("Newcomer" vs "Pro") stored in React `useState`.
-- [x] Added "Kick off" action button.
-- [x] Embedded temporary Moment 1 data verification preview reflecting situation text according to chosen level.
+## Environment variables
+`GEMINI_API_KEY` and `GEMINI_MODEL` (set in Vercel project settings; never committed).
+
+## Limitations and future scope
+- Real live data feeds for real matches.
+- Support for more sports.
+- Squad rooms for predicting with friends.
+- A shareable end-of-match story card.
